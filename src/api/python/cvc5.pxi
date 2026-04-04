@@ -6207,6 +6207,114 @@ cdef class Proof:
         return args
 
 
+class QuerySolver:
+    """
+    A convenience class that provides an efficient query interface for
+    enumerating instances satisfying open formulas.
+
+    This class wraps a :py:class:`Solver` and uses its incremental solving
+    capabilities (push/pop together with blockModelValues) to enumerate all
+    satisfying assignments of a free variable with respect to a given formula.
+
+    For finite-domain types (e.g., bit-vectors, Booleans, finite datatypes)
+    :py:meth:`findInstances` returns the complete set of values satisfying the
+    formula. For infinite-domain types (e.g., integers, reals) it can be used
+    with a ``max_instances`` limit, and :py:meth:`findWitness` returns a single
+    satisfying assignment (a Skolem witness).
+
+    .. note::
+        The wrapped :py:class:`Solver` must have been configured with the
+        options ``produce-models`` and ``incremental`` both set to ``"true"``
+        before any :py:class:`QuerySolver` method is called.
+
+    .. warning::
+        This class is experimental and may change in future versions.
+    """
+
+    def __init__(self, solver):
+        """
+        :param solver: The :py:class:`Solver` to use for queries.
+        """
+        self._solver = solver
+
+    def findInstances(self, variable, open_formula, max_instances=0):
+        """
+        Find all values of *variable* that satisfy *open_formula*, subject to
+        the assertions currently present in the wrapped solver.
+
+        The method pushes a fresh context level, asserts *open_formula*, and
+        repeatedly calls ``checkSat`` / ``getValue`` / ``blockModelValues`` to
+        enumerate distinct satisfying assignments.  The context is popped
+        afterwards so that the wrapped solver's assertion stack is unchanged.
+
+        .. note::
+            Best suited for finite-domain sorts (bit-vectors, Booleans,
+            enumeration sorts, finite datatypes).  For infinite-domain sorts
+            supply a nonzero *max_instances* to bound the enumeration.
+
+        .. warning::
+            This method is experimental and may change in future versions.
+
+        :param variable: A free constant whose satisfying values are sought.
+        :param open_formula: A formula (possibly) containing *variable*.
+        :param max_instances: Maximum number of instances to return.
+            Pass ``0`` for no limit (may not terminate for infinite domains).
+        :return: A list of terms, each a concrete value of *variable* that
+            satisfies *open_formula* (together with the current assertions).
+            Returns an empty list when no satisfying value exists.
+        """
+        instances = []
+        self._solver.push()
+        try:
+            self._solver.assertFormula(open_formula)
+            while True:
+                if max_instances > 0 and len(instances) >= max_instances:
+                    break
+                result = self._solver.checkSat()
+                if not result.isSat():
+                    break
+                value = self._solver.getValue(variable)
+                instances.append(value)
+                self._solver.blockModelValues([variable])
+        finally:
+            self._solver.pop()
+        return instances
+
+    def findWitness(self, variable, open_formula):
+        """
+        Find one value of *variable* that satisfies *open_formula*, subject to
+        the assertions currently present in the wrapped solver.
+
+        The method pushes a fresh context level, asserts *open_formula*, calls
+        ``checkSat`` once, and—if the result is SAT—retrieves
+        ``getValue(variable)`` as the witness.  The context is popped
+        afterwards.
+
+        .. note::
+            For infinite-domain sorts (integers, reals, strings, …) this is
+            the recommended way to obtain a Skolem-style witness: a concrete
+            term *w* such that *open_formula* holds when *variable* is
+            replaced by *w*.
+
+        .. warning::
+            This method is experimental and may change in future versions.
+
+        :param variable: A free constant whose satisfying value is sought.
+        :param open_formula: A formula (possibly) containing *variable*.
+        :return: A concrete value of *variable* satisfying *open_formula*, or
+            ``None`` if *open_formula* is unsatisfiable.
+        """
+        self._solver.push()
+        try:
+            self._solver.assertFormula(open_formula)
+            result = self._solver.checkSat()
+            if result.isSat():
+                return self._solver.getValue(variable)
+            return None
+        finally:
+            self._solver.pop()
+
+
 cdef public api:
     string cy_call_string_func(object self, string method, string *error):
         try:

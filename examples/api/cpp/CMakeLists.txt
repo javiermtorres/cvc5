@@ -19,6 +19,7 @@ set(CVC5_EXAMPLES_API_CPP
   extract
   helloworld
   linear_arith
+  query_solver
   quickstart
   sequences
   sets

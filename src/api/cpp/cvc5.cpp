@@ -8997,6 +8997,54 @@ std::string Solver::getVersion() const
 
 TermManager& Solver::getTermManager() const { return d_tm; }
 
+/* -------------------------------------------------------------------------- */
+/* QuerySolver                                                                 */
+/* -------------------------------------------------------------------------- */
+
+QuerySolver::QuerySolver(Solver& solver) : d_solver(solver) {}
+
+QuerySolver::~QuerySolver() {}
+
+std::vector<Term> QuerySolver::findInstances(const Term& variable,
+                                             const Term& openFormula,
+                                             uint32_t maxInstances)
+{
+  std::vector<Term> instances;
+  d_solver.push();
+  d_solver.assertFormula(openFormula);
+  while (true)
+  {
+    if (maxInstances > 0 && instances.size() >= maxInstances)
+    {
+      break;
+    }
+    Result r = d_solver.checkSat();
+    if (!r.isSat())
+    {
+      break;
+    }
+    Term value = d_solver.getValue(variable);
+    instances.push_back(value);
+    d_solver.blockModelValues({variable});
+  }
+  d_solver.pop();
+  return instances;
+}
+
+Term QuerySolver::findWitness(const Term& variable, const Term& openFormula)
+{
+  d_solver.push();
+  d_solver.assertFormula(openFormula);
+  Result r = d_solver.checkSat();
+  Term witness;
+  if (r.isSat())
+  {
+    witness = d_solver.getValue(variable);
+  }
+  d_solver.pop();
+  return witness;
+}
+
 }  // namespace cvc5
 
 namespace std {

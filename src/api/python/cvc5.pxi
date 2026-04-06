@@ -6216,11 +6216,13 @@ class QuerySolver:
     capabilities (push/pop together with blockModelValues) to enumerate all
     satisfying assignments of a free variable with respect to a given formula.
 
-    For finite-domain types (e.g., bit-vectors, Booleans, finite datatypes)
-    :py:meth:`findInstances` returns the complete set of values satisfying the
-    formula. For infinite-domain types (e.g., integers, reals) it can be used
-    with a ``max_instances`` limit, and :py:meth:`findWitness` returns a single
-    satisfying assignment (a Skolem witness).
+    For **uninterpreted sorts** (when finite model finding is active),
+    :py:meth:`findInstances` exploits the solver's already-computed model
+    domain via ``getModelDomainElements``, reducing the cost from
+    O(N·checkSat) to O(1·checkSat + N·getValue).
+
+    For all other types, the method falls back to a
+    ``checkSat`` / ``getValue`` / ``blockModelValues`` loop.
 
     .. note::
         The wrapped :py:class:`Solver` must have been configured with the
@@ -6242,15 +6244,22 @@ class QuerySolver:
         Find all values of *variable* that satisfy *open_formula*, subject to
         the assertions currently present in the wrapped solver.
 
-        The method pushes a fresh context level, asserts *open_formula*, and
-        repeatedly calls ``checkSat`` / ``getValue`` / ``blockModelValues`` to
-        enumerate distinct satisfying assignments.  The context is popped
-        afterwards so that the wrapped solver's assertion stack is unchanged.
+        Two strategies are used depending on the sort of *variable*:
 
-        .. note::
-            Best suited for finite-domain sorts (bit-vectors, Booleans,
-            enumeration sorts, finite datatypes).  For infinite-domain sorts
-            supply a nonzero *max_instances* to bound the enumeration.
+        - **Uninterpreted sorts** (finite model finding): a single
+          ``checkSat`` call is made; the solver's already-computed model
+          domain is retrieved via ``getModelDomainElements``, and the
+          formula is evaluated for each candidate using ``getValue``.
+          Cost: O(1·checkSat + N·getValue).
+
+        - **All other sorts**: the method pushes a fresh context level,
+          asserts *open_formula*, and repeatedly calls
+          ``checkSat`` / ``getValue`` / ``blockModelValues`` to enumerate
+          distinct satisfying assignments.
+          Cost: O(N·checkSat).
+
+        The context is popped afterwards so that the wrapped solver's
+        assertion stack is unchanged.
 
         .. warning::
             This method is experimental and may change in future versions.
@@ -6267,15 +6276,35 @@ class QuerySolver:
         self._solver.push()
         try:
             self._solver.assertFormula(open_formula)
-            while True:
-                if max_instances > 0 and len(instances) >= max_instances:
-                    break
-                result = self._solver.checkSat()
-                if not result.isSat():
-                    break
-                value = self._solver.getValue(variable)
-                instances.append(value)
-                self._solver.blockModelValues([variable])
+            result = self._solver.checkSat()
+            if result.isSat():
+                if variable.getSort().isUninterpretedSort():
+                    # Optimization: exploit the solver's model domain.
+                    # getModelDomainElements returns the finite domain
+                    # already computed by the solver, so we only need one
+                    # checkSat and N getValue calls instead of N checkSat
+                    # calls.
+                    for elem in self._solver.getModelDomainElements(
+                        variable.getSort()
+                    ):
+                        if max_instances > 0 and len(instances) >= max_instances:
+                            break
+                        # Substitute the candidate into the formula and ask
+                        # the model whether it evaluates to true.
+                        val = self._solver.getValue(
+                            open_formula.substitute(variable, elem)
+                        )
+                        if val.getBooleanValue():
+                            instances.append(elem)
+                else:
+                    # General path: enumerate via repeated
+                    # checkSat + blockModelValues.
+                    while result.isSat():
+                        if max_instances > 0 and len(instances) >= max_instances:
+                            break
+                        instances.append(self._solver.getValue(variable))
+                        self._solver.blockModelValues([variable])
+                        result = self._solver.checkSat()
         finally:
             self._solver.pop()
         return instances

@@ -9012,21 +9012,53 @@ std::vector<Term> QuerySolver::findInstances(const Term& variable,
   std::vector<Term> instances;
   d_solver.push();
   d_solver.assertFormula(openFormula);
-  while (true)
+
+  Result r = d_solver.checkSat();
+  if (r.isSat())
   {
-    if (maxInstances > 0 && instances.size() >= maxInstances)
+    // Optimization for uninterpreted sorts with finite model finding:
+    // getModelDomainElements() exposes the solver's already-computed domain
+    // for this sort, so we can test every domain element in a single pass
+    // using getValue(formula.substitute(variable, elem)) instead of
+    // issuing a new checkSat() for each instance.  This reduces the cost
+    // from O(N * checkSat) to O(1 * checkSat + N * getValue).
+    if (variable.getSort().isUninterpretedSort())
     {
-      break;
+      for (const Term& elem :
+           d_solver.getModelDomainElements(variable.getSort()))
+      {
+        if (maxInstances > 0 && instances.size() >= maxInstances)
+        {
+          break;
+        }
+        // Substitute the candidate element into the formula and ask the
+        // current model whether it evaluates to true.
+        Term eval =
+            d_solver.getValue(openFormula.substitute(variable, elem));
+        if (eval.getBooleanValue())
+        {
+          instances.push_back(elem);
+        }
+      }
     }
-    Result r = d_solver.checkSat();
-    if (!r.isSat())
+    else
     {
-      break;
+      // General path: enumerate via repeated checkSat + blockModelValues.
+      // Each blockModelValues call adds a clause that excludes the current
+      // satisfying assignment, so the next checkSat finds a fresh one.
+      do
+      {
+        if (maxInstances > 0 && instances.size() >= maxInstances)
+        {
+          break;
+        }
+        instances.push_back(d_solver.getValue(variable));
+        d_solver.blockModelValues({variable});
+        r = d_solver.checkSat();
+      } while (r.isSat());
     }
-    Term value = d_solver.getValue(variable);
-    instances.push_back(value);
-    d_solver.blockModelValues({variable});
   }
+
   d_solver.pop();
   return instances;
 }

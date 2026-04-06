@@ -124,3 +124,29 @@ def test_find_witness_preserves_state(tm, solver):
     # The outer context is still empty -> SAT
     r = solver.checkSat()
     assert r.isSat()
+
+
+# findInstances on an uninterpreted sort uses the model-domain optimization
+def test_find_instances_uninterpreted_sort_optimization(tm, solver):
+    # Enable finite model finding so the uninterpreted sort gets a finite domain.
+    solver.setOption("finite-model-find", "true")
+    u_sort = tm.mkUninterpretedSort("U")
+    x = tm.mkConst(u_sort, "x")
+    a = tm.mkConst(u_sort, "a")
+    b = tm.mkConst(u_sort, "b")
+
+    # Assert a != b so the model has at least two domain elements.
+    solver.assertFormula(tm.mkTerm(Kind.DISTINCT, a, b))
+
+    # Formula: x = a OR x = b (both domain elements satisfy it)
+    formula = tm.mkTerm(
+        Kind.OR,
+        tm.mkTerm(Kind.EQUAL, x, a),
+        tm.mkTerm(Kind.EQUAL, x, b),
+    )
+
+    qs = QuerySolver(solver)
+    instances = qs.findInstances(x, formula)
+
+    # Both a and b should be reported as instances.
+    assert len(instances) == 2

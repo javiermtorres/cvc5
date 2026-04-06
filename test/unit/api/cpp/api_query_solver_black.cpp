@@ -138,5 +138,31 @@ TEST_F(TestApiBlackQuerySolver, findWitnessPreservesState)
   ASSERT_TRUE(r.isSat());
 }
 
+// findInstances on an uninterpreted sort uses the model-domain optimization:
+// only one checkSat call is needed for the full enumeration.
+TEST_F(TestApiBlackQuerySolver, findInstancesUninterpretedSortOptimization)
+{
+  // Use finite model finding so the uninterpreted sort gets a finite domain.
+  d_solver->setOption("finite-model-find", "true");
+  Sort uSort = d_tm.mkUninterpretedSort("U");
+  Term x = d_tm.mkConst(uSort, "x");
+  Term a = d_tm.mkConst(uSort, "a");
+  Term b = d_tm.mkConst(uSort, "b");
+
+  // Assert a != b so the model has at least two domain elements.
+  d_solver->assertFormula(d_tm.mkTerm(Kind::DISTINCT, {a, b}));
+
+  // Formula: x = a OR x = b  (both domain elements satisfy it)
+  Term formula = d_tm.mkTerm(
+      Kind::OR,
+      {d_tm.mkTerm(Kind::EQUAL, {x, a}), d_tm.mkTerm(Kind::EQUAL, {x, b})});
+
+  QuerySolver qs(*d_solver);
+  std::vector<Term> instances = qs.findInstances(x, formula);
+
+  // Both a and b should be reported as instances.
+  ASSERT_EQ(instances.size(), 2u);
+}
+
 }  // namespace test
 }  // namespace cvc5::internal

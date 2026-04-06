@@ -7137,21 +7137,29 @@ class CVC5_EXPORT QuerySolver
    * Find all values of @p variable that satisfy @p openFormula, subject to
    * the assertions currently present in the wrapped solver.
    *
-   * The method pushes a fresh context level, asserts @p openFormula, and
-   * repeatedly calls checkSat() / getValue() / blockModelValues() to
-   * enumerate distinct satisfying assignments. The context is popped
-   * afterwards so that the wrapped solver's assertion stack is unchanged.
+   * Two strategies are used depending on the sort of @p variable:
    *
-   * @note Best suited for finite-domain sorts (bit-vectors, Booleans,
-   *       enumeration sorts, finite datatypes). For infinite-domain sorts
-   *       supply a nonzero @p maxInstances to bound the enumeration.
+   * - **Uninterpreted sorts** (finite model finding): a single checkSat()
+   *   call is made; the solver's already-computed model domain is retrieved
+   *   via getModelDomainElements(), and the formula is evaluated for each
+   *   candidate using getValue().  Cost: O(1·checkSat + N·getValue).
+   *
+   * - **All other sorts**: the method pushes a fresh context level, asserts
+   *   @p openFormula, and repeatedly calls checkSat() / getValue() /
+   *   blockModelValues() to enumerate distinct satisfying assignments.
+   *   Cost: O(N·checkSat).  For infinite-domain sorts, supply a nonzero
+   *   @p maxInstances to bound the enumeration.
+   *
+   * The context is popped afterwards so that the wrapped solver's assertion
+   * stack is unchanged.
    *
    * @warning This method is experimental and may change in future versions.
    *
    * @param variable    A free constant whose satisfying values are sought.
    * @param openFormula A formula (possibly) containing @p variable.
    * @param maxInstances Maximum number of instances to return. Pass 0 for
-   *                     no limit (may not terminate for infinite domains).
+   *                     no limit (may not terminate for infinite domains or
+   *                     for sorts with large finite domains).
    * @return A vector of terms, each a concrete value of @p variable that
    *         satisfies @p openFormula (together with the current assertions).
    *         Returns an empty vector when no satisfying value exists.

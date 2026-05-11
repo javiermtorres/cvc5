@@ -108,7 +108,7 @@ void AssertionList::notifyStatus(TNode n, DecisionStatus s)
   }
   if (d_assertionSet.find(n) == d_assertionSet.end())
   {
-    Trace("jh-status") << "...ignore inactive assertion" << std::endl;
+    Trace("jh-status") << "...ignore inactive assertion " << n << std::endl;
     return;
   }
   std::unordered_set<TNode>::iterator it = d_dlistSet.find(n);

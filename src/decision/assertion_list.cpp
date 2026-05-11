@@ -12,6 +12,8 @@
 
 #include "decision/assertion_list.h"
 
+#include <algorithm>
+
 namespace cvc5::internal {
 namespace decision {
 
@@ -36,7 +38,9 @@ std::ostream& operator<<(std::ostream& out, DecisionStatus s)
 AssertionList::AssertionList(context::Context* ac,
                              context::Context* ic,
                              bool useDyn)
-    : d_assertions(ac),
+    : context::ContextNotifyObj(ac),
+      d_assertions(ac),
+      d_assertionSet(ac),
       d_assertionIndex(ic),
       d_usingDynamic(useDyn),
       d_dindex(ic)
@@ -51,7 +55,11 @@ void AssertionList::presolve()
   d_dindex = 0;
 }
 
-void AssertionList::addAssertion(TNode n) { d_assertions.push_back(n); }
+void AssertionList::addAssertion(TNode n)
+{
+  d_assertions.push_back(n);
+  d_assertionSet.insert(n);
+}
 
 TNode AssertionList::getNextAssertion()
 {
@@ -98,6 +106,11 @@ void AssertionList::notifyStatus(TNode n, DecisionStatus s)
     // no decision does not impact the decision order
     return;
   }
+  if (d_assertionSet.find(n) == d_assertionSet.end())
+  {
+    Trace("jh-status") << "...ignore inactive assertion " << n << std::endl;
+    return;
+  }
   std::unordered_set<TNode>::iterator it = d_dlistSet.find(n);
   if (s == DecisionStatus::DECISION)
   {
@@ -125,6 +138,31 @@ void AssertionList::notifyStatus(TNode n, DecisionStatus s)
       d_dlist.insert(d_dlist.begin(), n);
       d_dlistSet.insert(n);
     }
+  }
+}
+
+void AssertionList::contextNotifyPop()
+{
+  if (!d_usingDynamic || d_dlist.empty())
+  {
+    return;
+  }
+  auto newEnd =
+      std::remove_if(d_dlist.begin(),
+                     d_dlist.end(),
+                     [this](TNode n) {
+                       return d_assertionSet.find(n) == d_assertionSet.end();
+                     });
+  if (newEnd == d_dlist.end())
+  {
+    return;
+  }
+  d_dlist.erase(newEnd, d_dlist.end());
+  d_dlistSet.clear();
+  d_dlistSet.insert(d_dlist.begin(), d_dlist.end());
+  if (d_dindex.get() > d_dlist.size())
+  {
+    d_dindex = d_dlist.size();
   }
 }
 

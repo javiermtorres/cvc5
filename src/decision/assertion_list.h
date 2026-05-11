@@ -19,8 +19,10 @@
 #include <unordered_set>
 #include <vector>
 
+#include "context/cdhashset.h"
 #include "context/cdlist.h"
 #include "context/cdo.h"
+#include "context/context.h"
 #include "expr/node.h"
 
 namespace cvc5::internal {
@@ -47,7 +49,7 @@ std::ostream& operator<<(std::ostream& out, DecisionStatus s);
  * An assertion list used by the justification heuristic. This tracks a list
  * of formulas that we must justify.
  */
-class AssertionList
+class AssertionList : protected context::ContextNotifyObj
 {
  public:
   /**
@@ -84,9 +86,14 @@ class AssertionList
   void notifyStatus(TNode n, DecisionStatus s);
 
  private:
+  /** Prune dynamic assertion state when assertions are retracted on pop. */
+  void contextNotifyPop() override;
+
   /** The list of assertions */
   context::CDList<Node> d_assertions;
-  /** The index of the next assertion to satify */
+  /** The set of assertions active in the current assertion context. */
+  context::CDHashSet<Node> d_assertionSet;
+  /** The index of the next assertion to satisfy */
   context::CDO<size_t> d_assertionIndex;
   // --------------------------- dynamic assertions
   /** are we using dynamic assertions? */
@@ -95,7 +102,7 @@ class AssertionList
   std::vector<TNode> d_dlist;
   /** The set of assertions for fast membership testing in the above vector */
   std::unordered_set<TNode> d_dlistSet;
-  /** The index of the next assertion to satify */
+  /** The index of the next assertion to satisfy */
   context::CDO<size_t> d_dindex;
 };
 

@@ -24,26 +24,26 @@ namespace test {
 class TestPropWhiteAssertionList : public TestNode
 {
  protected:
-  UserContext d_userContext;
-  Context d_context;
+  UserContext d_assertionContext;
+  Context d_internalContext;
 };
 
 TEST_F(TestPropWhiteAssertionList, retractDynamicAssertion)
 {
-  AssertionList al(&d_userContext, &d_context, true);
+  AssertionList al(&d_assertionContext, &d_internalContext, true);
   Node a = d_nodeManager->mkVar("a", *d_boolTypeNode);
   Node b = d_nodeManager->mkVar("b", *d_boolTypeNode);
 
   al.addAssertion(a);
 
-  d_userContext.push();
+  d_assertionContext.push();
   al.addAssertion(b);
   al.notifyStatus(b, DecisionStatus::BACKTRACK);
-  d_userContext.pop();
+  d_assertionContext.pop();
 
   ASSERT_EQ(al.getNextAssertion(), a);
 
-  d_userContext.push();
+  d_assertionContext.push();
   al.addAssertion(b);
   al.notifyStatus(b, DecisionStatus::BACKTRACK);
 

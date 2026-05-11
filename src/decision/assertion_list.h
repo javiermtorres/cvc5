@@ -93,7 +93,7 @@ class AssertionList : protected context::ContextNotifyObj
   context::CDList<Node> d_assertions;
   /** The set of assertions active in the current assertion context. */
   context::CDHashSet<Node> d_assertionSet;
-  /** The index of the next assertion to satify */
+  /** The index of the next assertion to satisfy */
   context::CDO<size_t> d_assertionIndex;
   // --------------------------- dynamic assertions
   /** are we using dynamic assertions? */
@@ -102,7 +102,7 @@ class AssertionList : protected context::ContextNotifyObj
   std::vector<TNode> d_dlist;
   /** The set of assertions for fast membership testing in the above vector */
   std::unordered_set<TNode> d_dlistSet;
-  /** The index of the next assertion to satify */
+  /** The index of the next assertion to satisfy */
   context::CDO<size_t> d_dindex;
 };
 

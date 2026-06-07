@@ -22,6 +22,7 @@ set(EXAMPLES_API_PYTHON
   linear_arith
   parser
   parser_sym_manager
+  query_solver
   quickstart
   sequences
   sets

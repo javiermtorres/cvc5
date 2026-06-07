@@ -6207,6 +6207,143 @@ cdef class Proof:
         return args
 
 
+class QuerySolver:
+    """
+    A convenience class that provides an efficient query interface for
+    enumerating instances satisfying open formulas.
+
+    This class wraps a :py:class:`Solver` and uses its incremental solving
+    capabilities (push/pop together with blockModelValues) to enumerate all
+    satisfying assignments of a free variable with respect to a given formula.
+
+    For **uninterpreted sorts** (when finite model finding is active),
+    :py:meth:`findInstances` exploits the solver's already-computed model
+    domain via ``getModelDomainElements``, reducing the cost from
+    O(N·checkSat) to O(1·checkSat + N·getValue).
+
+    For all other types, the method falls back to a
+    ``checkSat`` / ``getValue`` / ``blockModelValues`` loop.
+
+    .. note::
+        The wrapped :py:class:`Solver` must have been configured with the
+        options ``produce-models`` and ``incremental`` both set to ``"true"``
+        before any :py:class:`QuerySolver` method is called.
+
+    .. warning::
+        This class is experimental and may change in future versions.
+    """
+
+    def __init__(self, solver):
+        """
+        :param solver: The :py:class:`Solver` to use for queries.
+        """
+        self._solver = solver
+
+    def findInstances(self, variable, open_formula, max_instances=0):
+        """
+        Find all values of *variable* that satisfy *open_formula*, subject to
+        the assertions currently present in the wrapped solver.
+
+        Two strategies are used depending on the sort of *variable*:
+
+        - **Uninterpreted sorts** (finite model finding): a single
+          ``checkSat`` call is made; the solver's already-computed model
+          domain is retrieved via ``getModelDomainElements``, and the
+          formula is evaluated for each candidate using ``getValue``.
+          Cost: O(1·checkSat + N·getValue).
+
+        - **All other sorts**: the method pushes a fresh context level,
+          asserts *open_formula*, and repeatedly calls
+          ``checkSat`` / ``getValue`` / ``blockModelValues`` to enumerate
+          distinct satisfying assignments.
+          Cost: O(N·checkSat).
+
+        The context is popped afterwards so that the wrapped solver's
+        assertion stack is unchanged.
+
+        .. warning::
+            This method is experimental and may change in future versions.
+
+        :param variable: A free constant whose satisfying values are sought.
+        :param open_formula: A formula (possibly) containing *variable*.
+        :param max_instances: Maximum number of instances to return.
+            Pass ``0`` for no limit (may not terminate for infinite domains).
+        :return: A list of terms, each a concrete value of *variable* that
+            satisfies *open_formula* (together with the current assertions).
+            Returns an empty list when no satisfying value exists.
+        """
+        instances = []
+        self._solver.push()
+        try:
+            self._solver.assertFormula(open_formula)
+            result = self._solver.checkSat()
+            if result.isSat():
+                if variable.getSort().isUninterpretedSort():
+                    # Optimization: exploit the solver's model domain.
+                    # getModelDomainElements returns the finite domain
+                    # already computed by the solver, so we only need one
+                    # checkSat and N getValue calls instead of N checkSat
+                    # calls.
+                    for elem in self._solver.getModelDomainElements(
+                        variable.getSort()
+                    ):
+                        if max_instances > 0 and len(instances) >= max_instances:
+                            break
+                        # Substitute the candidate into the formula and ask
+                        # the model whether it evaluates to true.
+                        val = self._solver.getValue(
+                            open_formula.substitute(variable, elem)
+                        )
+                        if val.getBooleanValue():
+                            instances.append(elem)
+                else:
+                    # General path: enumerate via repeated
+                    # checkSat + blockModelValues.
+                    while result.isSat():
+                        if max_instances > 0 and len(instances) >= max_instances:
+                            break
+                        instances.append(self._solver.getValue(variable))
+                        self._solver.blockModelValues([variable])
+                        result = self._solver.checkSat()
+        finally:
+            self._solver.pop()
+        return instances
+
+    def findWitness(self, variable, open_formula):
+        """
+        Find one value of *variable* that satisfies *open_formula*, subject to
+        the assertions currently present in the wrapped solver.
+
+        The method pushes a fresh context level, asserts *open_formula*, calls
+        ``checkSat`` once, and—if the result is SAT—retrieves
+        ``getValue(variable)`` as the witness.  The context is popped
+        afterwards.
+
+        .. note::
+            For infinite-domain sorts (integers, reals, strings, …) this is
+            the recommended way to obtain a Skolem-style witness: a concrete
+            term *w* such that *open_formula* holds when *variable* is
+            replaced by *w*.
+
+        .. warning::
+            This method is experimental and may change in future versions.
+
+        :param variable: A free constant whose satisfying value is sought.
+        :param open_formula: A formula (possibly) containing *variable*.
+        :return: A concrete value of *variable* satisfying *open_formula*, or
+            ``None`` if *open_formula* is unsatisfiable.
+        """
+        self._solver.push()
+        try:
+            self._solver.assertFormula(open_formula)
+            result = self._solver.checkSat()
+            if result.isSat():
+                return self._solver.getValue(variable)
+            return None
+        finally:
+            self._solver.pop()
+
+
 cdef public api:
     string cy_call_string_func(object self, string method, string *error):
         try:

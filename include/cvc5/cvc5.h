@@ -7099,6 +7099,107 @@ class CVC5_EXPORT Solver
   TermManager& d_tm;
 };
 
+/* -------------------------------------------------------------------------- */
+/* QuerySolver                                                                 */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A convenience class that provides an efficient query interface for
+ * enumerating instances satisfying open formulas.
+ *
+ * This class wraps a Solver and uses its incremental solving capabilities
+ * (push/pop together with blockModelValues) to enumerate all satisfying
+ * assignments of a free variable with respect to a given formula.
+ *
+ * For finite-domain types (e.g., bit-vectors, Booleans, finite datatypes)
+ * the method findInstances() returns the complete set of values satisfying
+ * the formula. For infinite-domain types (e.g., integers, reals) it can be
+ * used with a limit via maxInstances, and findWitness() returns a single
+ * satisfying assignment (a Skolem witness).
+ *
+ * @note The wrapped Solver must have been configured with the options
+ *       `produce-models` and `incremental` both set to `"true"` before
+ *       any QuerySolver method is called.
+ *
+ * @warning This class is experimental and may change in future versions.
+ */
+class CVC5_EXPORT QuerySolver
+{
+ public:
+  /**
+   * Constructor.
+   * @param solver The solver to use for queries. Must have options
+   *               `produce-models` and `incremental` set to `"true"`.
+   */
+  QuerySolver(Solver& solver);
+
+  /**
+   * Destructor.
+   */
+  ~QuerySolver();
+
+  /**
+   * Find all values of @p variable that satisfy @p openFormula, subject to
+   * the assertions currently present in the wrapped solver.
+   *
+   * Two strategies are used depending on the sort of @p variable:
+   *
+   * - **Uninterpreted sorts** (finite model finding): a single checkSat()
+   *   call is made; the solver's already-computed model domain is retrieved
+   *   via getModelDomainElements(), and the formula is evaluated for each
+   *   candidate using getValue().  Cost: O(1·checkSat + N·getValue).
+   *
+   * - **All other sorts**: the method pushes a fresh context level, asserts
+   *   @p openFormula, and repeatedly calls checkSat() / getValue() /
+   *   blockModelValues() to enumerate distinct satisfying assignments.
+   *   Cost: O(N·checkSat).  For infinite-domain sorts, supply a nonzero
+   *   @p maxInstances to bound the enumeration.
+   *
+   * The context is popped afterwards so that the wrapped solver's assertion
+   * stack is unchanged.
+   *
+   * @warning This method is experimental and may change in future versions.
+   *
+   * @param variable    A free constant whose satisfying values are sought.
+   * @param openFormula A formula (possibly) containing @p variable.
+   * @param maxInstances Maximum number of instances to return. Pass 0 for
+   *                     no limit (may not terminate for infinite domains or
+   *                     for sorts with large finite domains).
+   * @return A vector of terms, each a concrete value of @p variable that
+   *         satisfies @p openFormula (together with the current assertions).
+   *         Returns an empty vector when no satisfying value exists.
+   */
+  std::vector<Term> findInstances(const Term& variable,
+                                  const Term& openFormula,
+                                  uint32_t maxInstances = 0);
+
+  /**
+   * Find one value of @p variable that satisfies @p openFormula, subject to
+   * the assertions currently present in the wrapped solver.
+   *
+   * The method pushes a fresh context level, asserts @p openFormula, calls
+   * checkSat() once, and—if the result is SAT—retrieves getValue(@p variable)
+   * as the witness. The context is popped afterwards.
+   *
+   * @note For infinite-domain sorts (integers, reals, strings, …) this is
+   *       the recommended way to obtain a Skolem-style witness: a concrete
+   *       term @f$w@f$ such that @p openFormula holds when @p variable is
+   *       replaced by @f$w@f$.
+   *
+   * @warning This method is experimental and may change in future versions.
+   *
+   * @param variable    A free constant whose satisfying value is sought.
+   * @param openFormula A formula (possibly) containing @p variable.
+   * @return A concrete value of @p variable satisfying @p openFormula, or
+   *         the null Term if @p openFormula is unsatisfiable.
+   */
+  Term findWitness(const Term& variable, const Term& openFormula);
+
+ private:
+  /** The wrapped solver. */
+  Solver& d_solver;
+};
+
 }  // namespace cvc5
 
 #endif

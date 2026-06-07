@@ -8993,6 +8993,86 @@ std::string Solver::getVersion() const
 
 TermManager& Solver::getTermManager() const { return d_tm; }
 
+/* -------------------------------------------------------------------------- */
+/* QuerySolver                                                                 */
+/* -------------------------------------------------------------------------- */
+
+QuerySolver::QuerySolver(Solver& solver) : d_solver(solver) {}
+
+QuerySolver::~QuerySolver() {}
+
+std::vector<Term> QuerySolver::findInstances(const Term& variable,
+                                             const Term& openFormula,
+                                             uint32_t maxInstances)
+{
+  std::vector<Term> instances;
+  d_solver.push();
+  d_solver.assertFormula(openFormula);
+
+  Result r = d_solver.checkSat();
+  if (r.isSat())
+  {
+    // Optimization for uninterpreted sorts with finite model finding:
+    // getModelDomainElements() exposes the solver's already-computed domain
+    // for this sort, so we can test every domain element in a single pass
+    // using getValue(formula.substitute(variable, elem)) instead of
+    // issuing a new checkSat() for each instance.  This reduces the cost
+    // from O(N * checkSat) to O(1 * checkSat + N * getValue).
+    if (variable.getSort().isUninterpretedSort())
+    {
+      for (const Term& elem :
+           d_solver.getModelDomainElements(variable.getSort()))
+      {
+        if (maxInstances > 0 && instances.size() >= maxInstances)
+        {
+          break;
+        }
+        // Substitute the candidate element into the formula and ask the
+        // current model whether it evaluates to true.
+        Term eval =
+            d_solver.getValue(openFormula.substitute(variable, elem));
+        if (eval.getBooleanValue())
+        {
+          instances.push_back(elem);
+        }
+      }
+    }
+    else
+    {
+      // General path: enumerate via repeated checkSat + blockModelValues.
+      // Each blockModelValues call adds a clause that excludes the current
+      // satisfying assignment, so the next checkSat finds a fresh one.
+      do
+      {
+        if (maxInstances > 0 && instances.size() >= maxInstances)
+        {
+          break;
+        }
+        instances.push_back(d_solver.getValue(variable));
+        d_solver.blockModelValues({variable});
+        r = d_solver.checkSat();
+      } while (r.isSat());
+    }
+  }
+
+  d_solver.pop();
+  return instances;
+}
+
+Term QuerySolver::findWitness(const Term& variable, const Term& openFormula)
+{
+  d_solver.push();
+  d_solver.assertFormula(openFormula);
+  Result r = d_solver.checkSat();
+  Term witness;
+  if (r.isSat())
+  {
+    witness = d_solver.getValue(variable);
+  }
+  d_solver.pop();
+  return witness;
+}
+
 }  // namespace cvc5
 
 namespace std {
